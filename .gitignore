@@ -1,0 +1,47 @@
+# macOS
+.DS_Store
+
+# Xcode user data and build artifacts
+DerivedData/
+build/
+*.xcuserstate
+*.xccheckout
+*.moved-aside
+*.hmap
+*.ipa
+*.dSYM.zip
+*.dSYM
+
+# Xcode workspace user settings
+xcuserdata/
+*.xcworkspace/xcuserdata/
+*.xcodeproj/xcuserdata/
+
+# Swift Package Manager
+.swiftpm/
+.build/
+Packages/
+Package.resolved
+*.xcodeproj/project.xcworkspace/xcshareddata/swiftpm/
+
+# CocoaPods (if introduced later)
+Pods/
+
+# Carthage (if introduced later)
+Carthage/Build/
+
+# Fastlane outputs
+fastlane/report.xml
+fastlane/Preview.html
+fastlane/screenshots/**/*.png
+fastlane/test_output/
+
+# Logs and temporary files
+*.log
+tmp/
+temp/
+
+# Local environment files
+.env
+.env.*
+

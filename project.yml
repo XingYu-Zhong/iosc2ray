@@ -1,0 +1,58 @@
+name: iosv2ray
+options:
+  bundleIdPrefix: com.zxy
+  deploymentTarget:
+    iOS: 16.0
+settings:
+  base:
+    SWIFT_VERSION: 5.9
+    MARKETING_VERSION: 0.1.0
+    CURRENT_PROJECT_VERSION: 1
+    DEVELOPMENT_TEAM: ""
+configs:
+  Debug: debug
+  Release: release
+packages:
+  Tun2SocksKit:
+    url: https://github.com/EbrahimTahernejad/Tun2SocksKit.git
+    from: 5.14.4
+targets:
+  iosv2ray:
+    type: application
+    platform: iOS
+    sources:
+      - path: App/Sources
+      - path: Shared/Sources
+    info:
+      path: App/Info.plist
+    entitlements:
+      path: App/iosv2ray.entitlements
+    settings:
+      base:
+        PRODUCT_BUNDLE_IDENTIFIER: com.zxy.iosv2ray
+        INFOPLIST_KEY_CFBundleDisplayName: iosv2ray
+        INFOPLIST_KEY_UIApplicationSceneManifest_Generation: YES
+        CODE_SIGN_ENTITLEMENTS: App/iosv2ray.entitlements
+    dependencies:
+      - target: PacketTunnel
+
+  PacketTunnel:
+    type: app-extension
+    platform: iOS
+    sources:
+      - path: Extension/Sources
+      - path: Shared/Sources
+    info:
+      path: Extension/Info.plist
+    entitlements:
+      path: Extension/PacketTunnel.entitlements
+    settings:
+      base:
+        PRODUCT_BUNDLE_IDENTIFIER: com.zxy.iosv2ray.PacketTunnel
+        INFOPLIST_KEY_CFBundleDisplayName: PacketTunnel
+        PRODUCT_NAME: PacketTunnel
+        CODE_SIGN_ENTITLEMENTS: Extension/PacketTunnel.entitlements
+        SKIP_INSTALL: YES
+    dependencies:
+      - package: Tun2SocksKit
+        product: Tun2SocksKit
