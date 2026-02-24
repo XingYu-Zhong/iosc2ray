@@ -4,6 +4,34 @@ import NetworkExtension
 import UIKit
 #endif
 
+struct ProbeHistoryItem: Identifiable, Equatable {
+    let id: UUID
+    let date: Date
+    let host: String
+    let port: Int
+    let latencyMS: Int?
+    let reachable: Bool
+    let message: String
+
+    init(
+        id: UUID = UUID(),
+        date: Date = .now,
+        host: String,
+        port: Int,
+        latencyMS: Int?,
+        reachable: Bool,
+        message: String
+    ) {
+        self.id = id
+        self.date = date
+        self.host = host
+        self.port = port
+        self.latencyMS = latencyMS
+        self.reachable = reachable
+        self.message = message
+    }
+}
+
 @MainActor
 final class VPNViewModel: ObservableObject {
     @Published var vmessLink = ""
@@ -21,6 +49,7 @@ final class VPNViewModel: ObservableObject {
     @Published var exportedMDMInstallProfileCommand = ""
     @Published var perAppModeHint = "按应用 VPN 需通过 MDM 下发（受管设备/受管应用）。"
     @Published var probeText = ""
+    @Published var probeHistory: [ProbeHistoryItem] = []
     @Published var copyStatusText = ""
 
     @Published var profiles: [VPNProfile] = []
@@ -30,11 +59,31 @@ final class VPNViewModel: ObservableObject {
     private let profileStore = ProfileStore.shared
     private let probeService = EndpointProbeService()
     private var parsedEndpoint: VMessEndpoint?
+    private var awaitingConnectResult = false
 
     init() {
-        managerService.startObservingStatus { [weak self] status in
+        managerService.startObservingStatus { [weak self] status, disconnectError in
             Task { @MainActor in
                 self?.statusText = VPNViewModel.describe(status)
+                if let disconnectError, !disconnectError.isEmpty {
+                    self?.lastError = disconnectError
+                }
+
+                guard let self else { return }
+                switch status {
+                case .connected:
+                    self.awaitingConnectResult = false
+                    self.lastError = ""
+                case .disconnected:
+                    if self.awaitingConnectResult {
+                        self.awaitingConnectResult = false
+                        if self.lastError.isEmpty {
+                            self.lastError = self.connectionFailureHint()
+                        }
+                    }
+                default:
+                    break
+                }
             }
         }
 
@@ -154,7 +203,11 @@ final class VPNViewModel: ObservableObject {
     }
 
     func connect() async {
+#if targetEnvironment(simulator)
+        lastError = "iOS 模拟器不支持 Network Extension 隧道连接。请在真机上测试“连接隧道”。"
+#else
         do {
+            awaitingConnectResult = true
             let profile: VPNProfile
             if let selectedProfileID,
                let existing = profiles.first(where: { $0.id == selectedProfileID }) {
@@ -170,8 +223,10 @@ final class VPNViewModel: ObservableObject {
             try await managerService.connect()
             lastError = ""
         } catch {
-            lastError = error.localizedDescription
+            awaitingConnectResult = false
+            lastError = formatConnectError(error)
         }
+#endif
     }
 
     func testEndpointReachability() async {
@@ -184,8 +239,27 @@ final class VPNViewModel: ObservableObject {
             } else {
                 probeText = result.message
             }
+
+            appendProbeHistory(
+                ProbeHistoryItem(
+                    host: endpoint.host,
+                    port: endpoint.port,
+                    latencyMS: result.latencyMS,
+                    reachable: result.reachable,
+                    message: result.message
+                )
+            )
         } catch {
             probeText = "测试失败: \(error.localizedDescription)"
+            appendProbeHistory(
+                ProbeHistoryItem(
+                    host: "未知",
+                    port: 0,
+                    latencyMS: nil,
+                    reachable: false,
+                    message: "测试失败: \(error.localizedDescription)"
+                )
+            )
         }
     }
 
@@ -239,6 +313,10 @@ final class VPNViewModel: ObservableObject {
 #endif
     }
 
+    func clearProbeHistory() {
+        probeHistory.removeAll()
+    }
+
     private func loadProfiles() async {
         profiles = await profileStore.allProfiles()
         if selectedProfileID == nil {
@@ -260,6 +338,13 @@ final class VPNViewModel: ObservableObject {
         exportedMDMSettingsDeviceCommand = ""
         exportedMDMInstallProfileCommand = ""
         copyStatusText = ""
+    }
+
+    private func appendProbeHistory(_ item: ProbeHistoryItem) {
+        probeHistory.insert(item, at: 0)
+        if probeHistory.count > 20 {
+            probeHistory.removeLast(probeHistory.count - 20)
+        }
     }
 
     private func profileFromForm(preferExistingID: UUID?) throws -> VPNProfile {
@@ -329,6 +414,29 @@ final class VPNViewModel: ObservableObject {
                 NSLocalizedDescriptionKey: "按应用模式不能在 App 内直接发起全局隧道。请先在 MDM 下发 Per-App VPN profile，并通过 VPNUUID 将目标应用绑定到该隧道。"
             ]
         )
+    }
+
+    private func connectionFailureHint() -> String {
+        var hints: [String] = ["VPN 隧道启动失败。"]
+
+        #if targetEnvironment(simulator)
+        hints.append("当前是 iOS 模拟器，模拟器不支持 Packet Tunnel。")
+        #endif
+
+        hints.append("请在真机测试，并确认 PacketTunnel 已链接 LibXray.xcframework。")
+        return hints.joined(separator: " ")
+    }
+
+    private func formatConnectError(_ error: Error) -> String {
+        let nsError = error as NSError
+        let raw = nsError.localizedDescription
+        let normalized = raw.lowercased()
+
+        if normalized.contains("permission") || normalized.contains("not entitled") || normalized.contains("entitle") {
+            return "系统拒绝 VPN 权限（\(raw)）。请确认 App 与 PacketTunnel 都已启用 Network Extensions (Packet Tunnel)，并使用支持该能力的开发者账号与描述文件重签名安装。"
+        }
+
+        return raw
     }
 
     private func parseCSV(_ input: String) -> [String] {

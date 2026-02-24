@@ -42,7 +42,7 @@ actor VPNManagerService {
         return manager.connection.status
     }
 
-    nonisolated func startObservingStatus(onUpdate: @escaping (NEVPNStatus) -> Void) {
+    nonisolated func startObservingStatus(onUpdate: @escaping (NEVPNStatus, String?) -> Void) {
         Task { [weak self] in
             guard let self else { return }
             let manager = try? await self.loadOrCreateManager()
@@ -54,18 +54,23 @@ actor VPNManagerService {
 
     private func observeStatusIfNeeded(
         for manager: NETunnelProviderManager,
-        onUpdate: ((NEVPNStatus) -> Void)? = nil
+        onUpdate: ((NEVPNStatus, String?) -> Void)? = nil
     ) {
         if statusObserver != nil {
             return
         }
+
+        // Emit current status immediately so UI has a consistent initial snapshot.
+        let initialStatus = manager.connection.status
+        onUpdate?(initialStatus, nil)
 
         statusObserver = NotificationCenter.default.addObserver(
             forName: .NEVPNStatusDidChange,
             object: manager.connection,
             queue: .main
         ) { _ in
-            onUpdate?(manager.connection.status)
+            let status = manager.connection.status
+            onUpdate?(status, nil)
         }
     }
 

@@ -14,8 +14,8 @@ build/
 
 # Xcode workspace user settings
 xcuserdata/
-*.xcworkspace/xcuserdata/
-*.xcodeproj/xcuserdata/
+*.xcworkspace/
+*.xcodeproj/
 
 # Swift Package Manager
 .swiftpm/
@@ -44,4 +44,6 @@ temp/
 # Local environment files
 .env
 .env.*
+venv/
 
+.codex
