@@ -25,8 +25,17 @@ targets:
       - path: Shared/Sources
     info:
       path: App/Info.plist
+      properties:
+        UILaunchScreen: {}
     entitlements:
       path: App/iosv2ray.entitlements
+      properties:
+        com.apple.developer.networking.networkextension:
+          - packet-tunnel-provider
+        com.apple.developer.networking.vpn.api:
+          - allow-vpn
+        com.apple.security.application-groups:
+          - group.com.zxy.iosv2ray
     settings:
       base:
         PRODUCT_BUNDLE_IDENTIFIER: com.zxy.iosv2ray
@@ -45,15 +54,27 @@ targets:
       - path: Shared/Sources
     info:
       path: Extension/Info.plist
+      properties:
+        NSExtension:
+          NSExtensionPointIdentifier: com.apple.networkextension.packet-tunnel
+          NSExtensionPrincipalClass: $(PRODUCT_MODULE_NAME).PacketTunnelProvider
     entitlements:
       path: Extension/PacketTunnel.entitlements
+      properties:
+        com.apple.developer.networking.networkextension:
+          - packet-tunnel-provider
+        com.apple.security.application-groups:
+          - group.com.zxy.iosv2ray
     settings:
       base:
         PRODUCT_BUNDLE_IDENTIFIER: com.zxy.iosv2ray.PacketTunnel
         INFOPLIST_KEY_CFBundleDisplayName: PacketTunnel
         PRODUCT_NAME: PacketTunnel
         CODE_SIGN_ENTITLEMENTS: Extension/PacketTunnel.entitlements
+        OTHER_LDFLAGS: "$(inherited) -Wl,-u,_CGoRunXrayFromJSON -Wl,-u,_CGoStopXray -Wl,-u,_CGoXrayVersion -lresolv"
         SKIP_INSTALL: YES
     dependencies:
       - package: Tun2SocksKit
         product: Tun2SocksKit
+      - framework: Vendor/LibXray.xcframework
+        embed: false

@@ -27,6 +27,7 @@ final class PacketTunnelProvider: NEPacketTunnelProvider {
 
                 let xrayJSON = try XrayConfigBuilder.build(profile: profile)
                 try engine.start(xrayJSON: xrayJSON)
+                TunnelRuntimeDiagnostics.clearLastStartError()
 
                 if let appRules, !appRules.isEmpty {
                     NSLog("[PacketTunnel] Per-App rules count = \(appRules.count)")
@@ -34,6 +35,8 @@ final class PacketTunnelProvider: NEPacketTunnelProvider {
 
                 completionHandler(nil)
             } catch {
+                TunnelRuntimeDiagnostics.writeLastStartError(error)
+                NSLog("[PacketTunnel] startTunnel failed: \(error.localizedDescription)")
                 completionHandler(error)
             }
         }

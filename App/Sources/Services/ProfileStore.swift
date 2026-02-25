@@ -15,7 +15,7 @@ actor ProfileStore {
     static let shared = ProfileStore()
 
     private let storageKey = "vpn.profiles"
-    private let suiteName = "group.com.zxy.iosv2ray"
+    private let suiteName = TunnelRuntimeDiagnostics.appGroupID
     private let vmessIDPlaceholder = "__KEYCHAIN__"
     private let secretStore = KeychainSecretStore(service: "com.zxy.iosv2ray.vmess")
 

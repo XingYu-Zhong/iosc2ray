@@ -2,10 +2,16 @@ import Foundation
 @preconcurrency import NetworkExtension
 
 actor VPNManagerService {
-    static let tunnelBundleIdentifier = "com.zxy.iosv2ray.PacketTunnel"
+    static var tunnelBundleIdentifier: String {
+        if let bundleID = Bundle.main.bundleIdentifier, !bundleID.isEmpty {
+            return "\(bundleID).PacketTunnel"
+        }
+        return "com.zxy.iosv2ray.PacketTunnel"
+    }
 
     private var manager: NETunnelProviderManager?
     private var statusObserver: NSObjectProtocol?
+    private var statusUpdateHandler: ((NEVPNStatus, String?) -> Void)?
 
     func install(profile: VPNProfile) async throws {
         let manager = try await loadOrCreateManager()
@@ -29,6 +35,7 @@ actor VPNManagerService {
         let manager = try await loadOrCreateManager()
         try await loadPreferences(manager)
         observeStatusIfNeeded(for: manager)
+        TunnelRuntimeDiagnostics.clearLastStartError()
         try manager.connection.startVPNTunnel()
     }
 
@@ -45,9 +52,11 @@ actor VPNManagerService {
     nonisolated func startObservingStatus(onUpdate: @escaping (NEVPNStatus, String?) -> Void) {
         Task { [weak self] in
             guard let self else { return }
-            let manager = try? await self.loadOrCreateManager()
-            if let manager {
+            do {
+                let manager = try await self.loadOrCreateManager()
                 await self.observeStatusIfNeeded(for: manager, onUpdate: onUpdate)
+            } catch {
+                onUpdate(.invalid, error.localizedDescription)
             }
         }
     }
@@ -56,22 +65,43 @@ actor VPNManagerService {
         for manager: NETunnelProviderManager,
         onUpdate: ((NEVPNStatus, String?) -> Void)? = nil
     ) {
+        if let onUpdate {
+            statusUpdateHandler = onUpdate
+        }
+
         if statusObserver != nil {
+            let status = manager.connection.status
+            emitStatus(status, disconnectError: resolveDisconnectError(for: status))
             return
         }
 
-        // Emit current status immediately so UI has a consistent initial snapshot.
         let initialStatus = manager.connection.status
-        onUpdate?(initialStatus, nil)
+        emitStatus(initialStatus, disconnectError: resolveDisconnectError(for: initialStatus))
 
         statusObserver = NotificationCenter.default.addObserver(
             forName: .NEVPNStatusDidChange,
             object: manager.connection,
             queue: .main
-        ) { _ in
+        ) { [weak self] _ in
+            guard let self else { return }
             let status = manager.connection.status
-            onUpdate?(status, nil)
+            Task { [weak self] in
+                guard let self else { return }
+                let disconnectError = await self.resolveDisconnectError(for: status)
+                await self.emitStatus(status, disconnectError: disconnectError)
+            }
         }
+    }
+
+    private func emitStatus(_ status: NEVPNStatus, disconnectError: String? = nil) {
+        statusUpdateHandler?(status, disconnectError)
+    }
+
+    private func resolveDisconnectError(for status: NEVPNStatus) -> String? {
+        guard status == .disconnected || status == .invalid else {
+            return nil
+        }
+        return TunnelRuntimeDiagnostics.readLastStartError()
     }
 
     private func loadOrCreateManager() async throws -> NETunnelProviderManager {

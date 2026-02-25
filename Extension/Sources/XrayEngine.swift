@@ -12,10 +12,7 @@ protocol XrayEngine {
 enum XrayEngineFactory {
     static func make() -> XrayEngine {
         #if canImport(Tun2SocksKit)
-            if LibXrayDynamicAPI.shared.isAvailable {
-                return LibXrayTun2SocksEngine()
-            }
-            return StubXrayEngine(reason: .libXrayUnavailable)
+            return LibXrayTun2SocksEngine()
         #else
             return StubXrayEngine(reason: .tun2SocksUnavailable)
         #endif
@@ -24,7 +21,6 @@ enum XrayEngineFactory {
 
 enum XrayEngineError: LocalizedError {
     case notIntegrated
-    case libXrayUnavailable
     case tun2SocksUnavailable
     case libXrayResponseDecodeFailed
     case libXrayCallFailed(String)
@@ -33,8 +29,6 @@ enum XrayEngineError: LocalizedError {
         switch self {
         case .notIntegrated:
             return "尚未接入真实 Xray Core。"
-        case .libXrayUnavailable:
-            return "未检测到 libXray 导出符号。请将 LibXray.xcframework 链接到 PacketTunnel target。"
         case .tun2SocksUnavailable:
             return "未检测到 Tun2SocksKit。请在工程中添加 Tun2SocksKit 包依赖。"
         case .libXrayResponseDecodeFailed:
@@ -57,66 +51,16 @@ private struct LibXrayCallResponse<T: Decodable>: Decodable {
     var error: String?
 }
 
-private final class LibXrayDynamicAPI {
-    typealias RunFromJSONFn = @convention(c) (_ requestBase64: UnsafePointer<CChar>) -> UnsafeMutablePointer<CChar>?
-    typealias StopFn = @convention(c) () -> UnsafeMutablePointer<CChar>?
-    typealias VersionFn = @convention(c) () -> UnsafeMutablePointer<CChar>?
+#if canImport(Tun2SocksKit)
+@_silgen_name("CGoRunXrayFromJSON")
+private func CGoRunXrayFromJSON(_ requestBase64: UnsafePointer<CChar>) -> UnsafeMutablePointer<CChar>?
 
-    static let shared = LibXrayDynamicAPI()
+@_silgen_name("CGoStopXray")
+private func CGoStopXray() -> UnsafeMutablePointer<CChar>?
 
-    private let runFromJSONSymbol: RunFromJSONFn?
-    private let stopSymbol: StopFn?
-    private let versionSymbol: VersionFn?
-
-    var isAvailable: Bool {
-        runFromJSONSymbol != nil && stopSymbol != nil
-    }
-
-    private init() {
-        runFromJSONSymbol = Self.resolve("CGoRunXrayFromJSON", as: RunFromJSONFn.self)
-        stopSymbol = Self.resolve("CGoStopXray", as: StopFn.self)
-        versionSymbol = Self.resolve("CGoXrayVersion", as: VersionFn.self)
-    }
-
-    func runXrayFromJSON(requestBase64: String) throws -> String {
-        guard let runFromJSONSymbol else {
-            throw XrayEngineError.libXrayUnavailable
-        }
-        guard let ptr = requestBase64.withCString({ runFromJSONSymbol($0) }) else {
-            throw XrayEngineError.libXrayResponseDecodeFailed
-        }
-        defer { free(ptr) }
-        return String(cString: ptr)
-    }
-
-    func stopXray() throws -> String {
-        guard let stopSymbol else {
-            throw XrayEngineError.libXrayUnavailable
-        }
-        guard let ptr = stopSymbol() else {
-            throw XrayEngineError.libXrayResponseDecodeFailed
-        }
-        defer { free(ptr) }
-        return String(cString: ptr)
-    }
-
-    func version() -> String? {
-        guard let versionSymbol, let ptr = versionSymbol() else {
-            return nil
-        }
-        defer { free(ptr) }
-        return String(cString: ptr)
-    }
-
-    private static func resolve<T>(_ symbol: String, as: T.Type) -> T? {
-        let rtldDefault = UnsafeMutableRawPointer(bitPattern: -2)
-        guard let rtldDefault else { return nil }
-        guard let pointer = dlsym(rtldDefault, symbol) else {
-            return nil
-        }
-        return unsafeBitCast(pointer, to: T.self)
-    }
-}
+@_silgen_name("CGoXrayVersion")
+private func CGoXrayVersion() -> UnsafeMutablePointer<CChar>?
+#endif
 
 final class StubXrayEngine: XrayEngine {
     private let reason: XrayEngineError
@@ -142,7 +86,6 @@ final class StubXrayEngine: XrayEngine {
 
 #if canImport(Tun2SocksKit)
 final class LibXrayTun2SocksEngine: XrayEngine {
-    private let libXray = LibXrayDynamicAPI.shared
     private let fileManager = FileManager.default
     private var tunTask: Task<Void, Never>?
     private var started = false
@@ -170,10 +113,6 @@ final class LibXrayTun2SocksEngine: XrayEngine {
             return
         }
 
-        guard libXray.isAvailable else {
-            throw XrayEngineError.libXrayUnavailable
-        }
-
         let runtime = try prepareRuntimeDirectory()
         let datDir = resolveDatDir(fallback: runtime)
         let requestBase64 = try makeRunXrayRequestBase64(
@@ -182,7 +121,7 @@ final class LibXrayTun2SocksEngine: XrayEngine {
             configJSON: xrayJSON
         )
 
-        let runResponse = try libXray.runXrayFromJSON(requestBase64: requestBase64)
+        let runResponse = try callRunXrayFromJSON(requestBase64: requestBase64)
         try decodeAndValidateResponse(runResponse)
 
         let tunConfig = makeTun2SocksConfig()
@@ -194,7 +133,7 @@ final class LibXrayTun2SocksEngine: XrayEngine {
         }
 
         started = true
-        if let version = libXray.version() {
+        if let version = callXrayVersion() {
             NSLog("[XrayEngine] started with libXray version response: \(version)")
         }
     }
@@ -211,7 +150,7 @@ final class LibXrayTun2SocksEngine: XrayEngine {
         tunTask?.cancel()
         tunTask = nil
 
-        if let stopResponse = try? libXray.stopXray() {
+        if let stopResponse = try? callStopXray() {
             _ = try? decodeAndValidateResponse(stopResponse)
         }
 
@@ -228,7 +167,9 @@ final class LibXrayTun2SocksEngine: XrayEngine {
     }
 
     private func resolveDatDir(fallback: URL) -> URL {
-        if let groupDir = fileManager.containerURL(forSecurityApplicationGroupIdentifier: "group.com.zxy.iosv2ray") {
+        if let groupDir = fileManager.containerURL(
+            forSecurityApplicationGroupIdentifier: TunnelRuntimeDiagnostics.appGroupID
+        ) {
             let geoDir = groupDir.appendingPathComponent("geo", isDirectory: true)
             if containsAnyGeoFile(in: geoDir) {
                 return geoDir
@@ -271,6 +212,30 @@ final class LibXrayTun2SocksEngine: XrayEngine {
         }
 
         return response.data
+    }
+
+    private func callRunXrayFromJSON(requestBase64: String) throws -> String {
+        guard let ptr = requestBase64.withCString({ CGoRunXrayFromJSON($0) }) else {
+            throw XrayEngineError.libXrayResponseDecodeFailed
+        }
+        defer { free(ptr) }
+        return String(cString: ptr)
+    }
+
+    private func callStopXray() throws -> String {
+        guard let ptr = CGoStopXray() else {
+            throw XrayEngineError.libXrayResponseDecodeFailed
+        }
+        defer { free(ptr) }
+        return String(cString: ptr)
+    }
+
+    private func callXrayVersion() -> String? {
+        guard let ptr = CGoXrayVersion() else {
+            return nil
+        }
+        defer { free(ptr) }
+        return String(cString: ptr)
     }
 
     private func makeTun2SocksConfig() -> String {

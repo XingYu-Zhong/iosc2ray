@@ -221,6 +221,7 @@ final class VPNViewModel: ObservableObject {
 
             try await managerService.install(profile: profile)
             try await managerService.connect()
+            scheduleConnectResultTimeoutCheck()
             lastError = ""
         } catch {
             awaitingConnectResult = false
@@ -425,6 +426,47 @@ final class VPNViewModel: ObservableObject {
 
         hints.append("请在真机测试，并确认 PacketTunnel 已链接 LibXray.xcframework。")
         return hints.joined(separator: " ")
+    }
+
+    private func scheduleConnectResultTimeoutCheck() {
+        Task { [weak self] in
+            try? await Task.sleep(nanoseconds: 6_000_000_000)
+            await self?.validateConnectResultIfNeeded()
+        }
+    }
+
+    private func validateConnectResultIfNeeded() async {
+        guard awaitingConnectResult else {
+            return
+        }
+
+        do {
+            let status = try await managerService.currentStatus()
+            statusText = VPNViewModel.describe(status)
+
+            switch status {
+            case .connected:
+                awaitingConnectResult = false
+                lastError = ""
+            case .connecting, .reasserting, .disconnecting:
+                break
+            case .disconnected, .invalid:
+                awaitingConnectResult = false
+                if lastError.isEmpty {
+                    lastError = connectionFailureHint()
+                }
+            @unknown default:
+                awaitingConnectResult = false
+                if lastError.isEmpty {
+                    lastError = connectionFailureHint()
+                }
+            }
+        } catch {
+            awaitingConnectResult = false
+            if lastError.isEmpty {
+                lastError = "\(connectionFailureHint()) \(error.localizedDescription)"
+            }
+        }
     }
 
     private func formatConnectError(_ error: Error) -> String {

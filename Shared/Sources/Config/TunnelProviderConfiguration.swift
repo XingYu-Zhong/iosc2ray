@@ -5,6 +5,58 @@ enum ProviderConfigKeys {
     static let xrayJSON = "xrayJSON"
 }
 
+enum TunnelRuntimeDiagnostics {
+    static let appGroupID = "group.com.zxy.iosv2ray"
+
+    private static let messageKey = "tunnel.runtime.lastStartError.message"
+    private static let domainKey = "tunnel.runtime.lastStartError.domain"
+    private static let codeKey = "tunnel.runtime.lastStartError.code"
+    private static let timestampKey = "tunnel.runtime.lastStartError.timestamp"
+
+    private static var defaults: UserDefaults? {
+        UserDefaults(suiteName: appGroupID)
+    }
+
+    static func clearLastStartError() {
+        guard let defaults else { return }
+        defaults.removeObject(forKey: messageKey)
+        defaults.removeObject(forKey: domainKey)
+        defaults.removeObject(forKey: codeKey)
+        defaults.removeObject(forKey: timestampKey)
+    }
+
+    static func writeLastStartError(_ error: Error) {
+        guard let defaults else { return }
+        let nsError = error as NSError
+        defaults.set(nsError.localizedDescription, forKey: messageKey)
+        defaults.set(nsError.domain, forKey: domainKey)
+        defaults.set(nsError.code, forKey: codeKey)
+        defaults.set(Date().timeIntervalSince1970, forKey: timestampKey)
+    }
+
+    static func readLastStartError(maxAge: TimeInterval = 45) -> String? {
+        guard let defaults else { return nil }
+        guard let message = defaults.string(forKey: messageKey), !message.isEmpty else {
+            return nil
+        }
+
+        let timestamp = defaults.double(forKey: timestampKey)
+        if timestamp > 0 {
+            let age = Date().timeIntervalSince1970 - timestamp
+            if age > maxAge {
+                return nil
+            }
+        }
+
+        let domain = defaults.string(forKey: domainKey) ?? ""
+        let code = defaults.object(forKey: codeKey) as? Int
+        guard !domain.isEmpty, let code else {
+            return message
+        }
+        return "\(message) [\(domain):\(code)]"
+    }
+}
+
 enum TunnelProviderConfigurationBuilder {
     static func makeConfiguration(profile: VPNProfile) throws -> [String: Any] {
         let profileData = try JSONEncoder().encode(profile)

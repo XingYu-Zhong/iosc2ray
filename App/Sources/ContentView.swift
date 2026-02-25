@@ -1,4 +1,7 @@
 import SwiftUI
+#if canImport(UIKit)
+import UIKit
+#endif
 
 struct ContentView: View {
     var body: some View {
@@ -19,6 +22,14 @@ struct ContentView: View {
                 }
         }
         .frame(maxWidth: .infinity, maxHeight: .infinity)
+        .toolbar {
+            ToolbarItemGroup(placement: .keyboard) {
+                Spacer()
+                Button("完成") {
+                    KeyboardController.dismiss()
+                }
+            }
+        }
     }
 }
 
@@ -630,6 +641,7 @@ private struct ScreenBackground<Content: View>: View {
                     .padding(.top, 12)
                     .padding(.bottom, 108)
             }
+            .scrollDismissesKeyboard(.interactively)
             .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .top)
             .scrollIndicators(.hidden)
         }
@@ -876,5 +888,13 @@ private struct StatusPresentation {
             icon = "shield.slash.fill"
             tint = .secondary
         }
+    }
+}
+
+private enum KeyboardController {
+    static func dismiss() {
+        #if canImport(UIKit)
+            UIApplication.shared.sendAction(#selector(UIResponder.resignFirstResponder), to: nil, from: nil, for: nil)
+        #endif
     }
 }
