@@ -642,6 +642,11 @@ private struct ScreenBackground<Content: View>: View {
                     .padding(.bottom, 108)
             }
             .scrollDismissesKeyboard(.interactively)
+            .simultaneousGesture(
+                TapGesture().onEnded {
+                    KeyboardController.dismiss()
+                }
+            )
             .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .top)
             .scrollIndicators(.hidden)
         }
