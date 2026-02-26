@@ -18,9 +18,23 @@ final class PacketTunnelProvider: NEPacketTunnelProvider {
                     )
                 }
 
-                let profile = try TunnelProviderConfigurationBuilder.decodeProfile(
+                let runtimeConfig = try TunnelProviderConfigurationBuilder.decodeRuntimeConfig(
                     from: tunnelProtocol.providerConfiguration
                 )
+                let profile = runtimeConfig.profile
+                let mode = runtimeConfig.mode
+
+                if mode == .perAppManaged {
+                    guard let appRules, !appRules.isEmpty else {
+                        throw NSError(
+                            domain: "iosv2ray.packettunnel",
+                            code: 2,
+                            userInfo: [
+                                NSLocalizedDescriptionKey: "按应用模式未检测到系统下发的 appRules。请先通过 MDM 下发 App-Layer VPN 并绑定 VPNUUID。"
+                            ]
+                        )
+                    }
+                }
 
                 let settings = makeNetworkSettings(profile: profile)
                 try await setTunnelNetworkSettings(settings)
@@ -29,6 +43,7 @@ final class PacketTunnelProvider: NEPacketTunnelProvider {
                 try engine.start(xrayJSON: xrayJSON)
                 TunnelRuntimeDiagnostics.clearLastStartError()
 
+                NSLog("[PacketTunnel] tunnel mode = \(mode.rawValue)")
                 if let appRules, !appRules.isEmpty {
                     NSLog("[PacketTunnel] Per-App rules count = \(appRules.count)")
                 }
@@ -76,6 +91,20 @@ final class PacketTunnelProvider: NEPacketTunnelProvider {
         }
 
         settings.ipv4Settings = ipv4
+
+        let ipv6 = NEIPv6Settings(
+            addresses: ["fd12:3456:789a::2"],
+            networkPrefixLengths: [NSNumber(value: 64)]
+        )
+        ipv6.includedRoutes = [NEIPv6Route.default()]
+        if profile.bypassLAN {
+            ipv6.excludedRoutes = [
+                NEIPv6Route(destinationAddress: "::1", networkPrefixLength: NSNumber(value: 128)),
+                NEIPv6Route(destinationAddress: "fc00::", networkPrefixLength: NSNumber(value: 7)),
+                NEIPv6Route(destinationAddress: "fe80::", networkPrefixLength: NSNumber(value: 10))
+            ]
+        }
+        settings.ipv6Settings = ipv6
 
         let dnsSettings = NEDNSSettings(servers: profile.dnsServers)
         dnsSettings.matchDomains = [""]

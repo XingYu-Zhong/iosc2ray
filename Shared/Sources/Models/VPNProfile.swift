@@ -25,7 +25,6 @@ struct VPNProfile: Codable, Equatable, Identifiable {
     var endpoint: VMessEndpoint
     var dnsServers: [String]
     var perAppBundleIDs: [String]
-    var mode: TunnelMode
     var onDemandEnabled: Bool
     var bypassLAN: Bool
 
@@ -35,7 +34,6 @@ struct VPNProfile: Codable, Equatable, Identifiable {
         endpoint: VMessEndpoint,
         dnsServers: [String] = ["1.1.1.1", "8.8.8.8"],
         perAppBundleIDs: [String] = [],
-        mode: TunnelMode = .fullDevice,
         onDemandEnabled: Bool = false,
         bypassLAN: Bool = true
     ) {
@@ -44,7 +42,6 @@ struct VPNProfile: Codable, Equatable, Identifiable {
         self.endpoint = endpoint
         self.dnsServers = dnsServers
         self.perAppBundleIDs = perAppBundleIDs
-        self.mode = mode
         self.onDemandEnabled = onDemandEnabled
         self.bypassLAN = bypassLAN
     }
@@ -55,7 +52,6 @@ struct VPNProfile: Codable, Equatable, Identifiable {
         case endpoint
         case dnsServers
         case perAppBundleIDs
-        case mode
         case onDemandEnabled
         case bypassLAN
     }
@@ -67,7 +63,6 @@ struct VPNProfile: Codable, Equatable, Identifiable {
         endpoint = try container.decode(VMessEndpoint.self, forKey: .endpoint)
         dnsServers = try container.decodeIfPresent([String].self, forKey: .dnsServers) ?? ["1.1.1.1", "8.8.8.8"]
         perAppBundleIDs = try container.decodeIfPresent([String].self, forKey: .perAppBundleIDs) ?? []
-        mode = try container.decodeIfPresent(TunnelMode.self, forKey: .mode) ?? .fullDevice
         onDemandEnabled = try container.decodeIfPresent(Bool.self, forKey: .onDemandEnabled) ?? false
         bypassLAN = try container.decodeIfPresent(Bool.self, forKey: .bypassLAN) ?? true
     }

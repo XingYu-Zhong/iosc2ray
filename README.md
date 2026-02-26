@@ -69,12 +69,15 @@ xcodegen generate
 
 ## 指定应用走 VPN（Per-App）
 
-1. 在 App 里选择 `按应用 VPN (MDM)`，填写目标应用 `Bundle ID` 列表。
-2. 点击 `生成 MDM Per-App 配置`，得到四份内容：
+1. 在“高级设置”选择模式（`全局 VPN` / `按应用 VPN (MDM)`）。模式属于全局设置，不随配置保存。
+2. 在 App 里填写目标应用 `Bundle ID` 列表（可用“选择应用”）。
+3. 点击 `生成 MDM Per-App 配置`，得到四份内容：
    - `MDM 配置 XML`
    - `MDM Settings 命令`
    - `设备命令 InstallProfile(plist)`
    - `设备命令 Settings(plist)`
-3. 将 profile 下发到设备，并在 MDM 侧执行 Settings 命令，把目标应用绑定到同一个 `VPNUUID`。
+4. 将 profile 下发到设备，并在 MDM 侧执行 Settings 命令，把目标应用绑定到同一个 `VPNUUID`。
+5. `连接隧道` 可在两种模式下都使用；是否按应用生效取决于设备上的 Per-App 绑定状态。
+6. Per-App 绑定只对受管应用生效（由 MDM 安装/管理的应用）。
 
 更多细节见 `Docs/REAL_CORE_INTEGRATION.md`。

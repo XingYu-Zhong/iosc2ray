@@ -46,6 +46,19 @@ private struct DashboardTab: View {
                     runtimeSummary
                     probeHistoryCard
 
+                    if !viewModel.connectionNotice.isEmpty {
+                        InfoCard(
+                            title: "连接提示",
+                            symbol: "info.circle.fill",
+                            tint: .blue
+                        ) {
+                            Text(viewModel.connectionNotice)
+                                .font(.footnote)
+                                .foregroundStyle(.secondary)
+                                .fixedSize(horizontal: false, vertical: true)
+                        }
+                    }
+
                     if !viewModel.lastError.isEmpty {
                         InfoCard(
                             title: "异常信息",
@@ -117,6 +130,8 @@ private struct DashboardTab: View {
                         .frame(maxWidth: .infinity)
                 }
                 .buttonStyle(PrimaryActionButtonStyle())
+                .keyboardShortcut("j", modifiers: [.command])
+                .disabled(!canConnect)
 
                 ViewThatFits(in: .horizontal) {
                     HStack(spacing: 10) {
@@ -127,6 +142,8 @@ private struct DashboardTab: View {
                                 .frame(maxWidth: .infinity)
                         }
                         .buttonStyle(SecondaryActionButtonStyle())
+                        .keyboardShortcut("k", modifiers: [.command])
+                        .disabled(!canDisconnect)
 
                         Button {
                             Task { await viewModel.testEndpointReachability() }
@@ -145,6 +162,8 @@ private struct DashboardTab: View {
                                 .frame(maxWidth: .infinity)
                         }
                         .buttonStyle(SecondaryActionButtonStyle())
+                        .keyboardShortcut("k", modifiers: [.command])
+                        .disabled(!canDisconnect)
 
                         Button {
                             Task { await viewModel.testEndpointReachability() }
@@ -155,7 +174,29 @@ private struct DashboardTab: View {
                         .buttonStyle(SecondaryActionButtonStyle())
                     }
                 }
+
+                Text("快捷键：⌘J 连接 · ⌘K 断开")
+                    .font(.caption)
+                    .foregroundStyle(.secondary)
             }
+        }
+    }
+
+    private var canConnect: Bool {
+        switch viewModel.statusText {
+        case "未连接", "无效":
+            return true
+        default:
+            return false
+        }
+    }
+
+    private var canDisconnect: Bool {
+        switch viewModel.statusText {
+        case "连接中", "已连接", "重连中", "断开中":
+            return true
+        default:
+            return false
         }
     }
 
@@ -414,12 +455,12 @@ private struct ProfileDetailView: View {
                     SurfaceCard {
                         VStack(alignment: .leading, spacing: 12) {
                             SectionHeader(title: "策略设置", symbol: "switch.2")
-                            SummaryRow(title: "模式", value: tunnelModeText(profile.mode))
+                            SummaryRow(title: "模式（全局设置）", value: tunnelModeText(viewModel.mode))
                             SummaryRow(title: "On-Demand", value: profile.onDemandEnabled ? "已开启" : "已关闭")
                             SummaryRow(title: "绕行 LAN", value: profile.bypassLAN ? "是" : "否")
                             SummaryRow(title: "DNS", value: profile.dnsServers.isEmpty ? "-" : profile.dnsServers.joined(separator: ", "))
 
-                            if profile.mode == .perAppManaged {
+                            if !profile.perAppBundleIDs.isEmpty {
                                 SummaryRow(
                                     title: "Bundle IDs",
                                     value: profile.perAppBundleIDs.isEmpty ? "-" : profile.perAppBundleIDs.joined(separator: ", ")
@@ -484,6 +525,7 @@ private struct ProfileDetailView: View {
 
 private struct SettingsTab: View {
     @EnvironmentObject private var viewModel: VPNViewModel
+    @State private var isAppPickerPresented = false
 
     var body: some View {
         NavigationStack {
@@ -507,6 +549,10 @@ private struct SettingsTab: View {
             }
             .navigationTitle("高级设置")
             .navigationBarTitleDisplayMode(.inline)
+        }
+        .sheet(isPresented: $isAppPickerPresented) {
+            PerAppAppPickerSheet()
+                .environmentObject(viewModel)
         }
     }
 
@@ -537,6 +583,34 @@ private struct SettingsTab: View {
                         .autocorrectionDisabled()
                 }
 
+                HStack(spacing: 10) {
+                    Button {
+                        isAppPickerPresented = true
+                    } label: {
+                        Label("选择应用", systemImage: "square.grid.2x2")
+                            .frame(maxWidth: .infinity)
+                    }
+                    .buttonStyle(SecondaryActionButtonStyle())
+
+                    Button {
+                        viewModel.applyPerAppBundleIDs([])
+                    } label: {
+                        Label("清空", systemImage: "trash")
+                            .frame(maxWidth: .infinity)
+                    }
+                    .buttonStyle(SecondaryActionButtonStyle(tint: .red))
+                    .disabled(viewModel.selectedPerAppBundleIDs().isEmpty)
+                }
+
+                if !viewModel.selectedPerAppBundleIDs().isEmpty {
+                    PerAppBundleIDChips(
+                        bundleIDs: viewModel.selectedPerAppBundleIDs(),
+                        removeAction: { bundleID in
+                            viewModel.removePerAppBundleID(bundleID)
+                        }
+                    )
+                }
+
                 if viewModel.mode == .perAppManaged {
                     HStack(alignment: .top, spacing: 8) {
                         Image(systemName: "info.circle.fill")
@@ -555,6 +629,42 @@ private struct SettingsTab: View {
         SurfaceCard {
             VStack(alignment: .leading, spacing: 14) {
                 SectionHeader(title: "MDM 导出", symbol: "doc.badge.gearshape")
+
+                Toggle("连接时自动请求 MDM 绑定", isOn: $viewModel.mdmAutoBindEnabled)
+
+                if viewModel.mdmAutoBindEnabled {
+                    LabeledInput(title: "MDM API 地址") {
+                        TextField(
+                            "https://mdm.example.com/api/per-app-vpn-bind",
+                            text: $viewModel.mdmAutoBindEndpoint
+                        )
+                        .textInputAutocapitalization(.never)
+                        .autocorrectionDisabled()
+                        .keyboardType(.URL)
+                    }
+
+                    LabeledInput(title: "设备标识 (UDID/Serial)") {
+                        TextField("例如：00008110-001A114E0E8A801E", text: $viewModel.mdmAutoBindDeviceIdentifier)
+                            .textInputAutocapitalization(.never)
+                            .autocorrectionDisabled()
+                    }
+
+                    LabeledInput(title: "API Token (可选)") {
+                        SecureField("Bearer Token", text: $viewModel.mdmAutoBindToken)
+                            .textInputAutocapitalization(.never)
+                            .autocorrectionDisabled()
+                    }
+
+                    if !viewModel.mdmAutoBindStatus.isEmpty {
+                        Text(viewModel.mdmAutoBindStatus)
+                            .font(.footnote)
+                            .foregroundStyle(.secondary)
+                    }
+
+                    Text("点击“连接隧道”时会自动向该接口提交 InstallProfile + Settings 下发请求。")
+                        .font(.footnote)
+                        .foregroundStyle(.secondary)
+                }
 
                 if viewModel.mode == .perAppManaged {
                     Button {
@@ -601,6 +711,263 @@ private struct SettingsTab: View {
                         copyLabel: "Settings(plist)"
                     )
                 }
+            }
+        }
+    }
+}
+
+private struct PerAppAppPickerSheet: View {
+    @EnvironmentObject private var viewModel: VPNViewModel
+    @Environment(\.dismiss) private var dismiss
+    @State private var searchKeyword = ""
+    @State private var selectedBundleIDs: [String] = []
+
+    var body: some View {
+        NavigationStack {
+            ScreenBackground {
+                VStack(spacing: 16) {
+                    searchCard
+                    presetCard
+                    selectedCard
+
+                    if !viewModel.appStoreSearchResults.isEmpty {
+                        searchResultCard
+                    }
+                }
+            }
+            .navigationTitle("选择应用")
+            .navigationBarTitleDisplayMode(.inline)
+            .toolbar {
+                ToolbarItem(placement: .cancellationAction) {
+                    Button("取消") {
+                        dismiss()
+                    }
+                }
+
+                ToolbarItem(placement: .confirmationAction) {
+                    Button("完成") {
+                        viewModel.applyPerAppBundleIDs(selectedBundleIDs)
+                        dismiss()
+                    }
+                }
+            }
+            .onAppear {
+                selectedBundleIDs = viewModel.selectedPerAppBundleIDs()
+                viewModel.resetAppStoreSearch()
+            }
+            .onDisappear {
+                viewModel.resetAppStoreSearch()
+            }
+        }
+    }
+
+    private var searchCard: some View {
+        SurfaceCard {
+            VStack(alignment: .leading, spacing: 12) {
+                SectionHeader(title: "App Store 搜索", symbol: "magnifyingglass")
+
+                LabeledInput(title: "输入应用名 / App Store 链接 / Bundle ID") {
+                    TextField("微信、com.tencent.xin、https://apps.apple.com/...", text: $searchKeyword)
+                        .textInputAutocapitalization(.never)
+                        .autocorrectionDisabled()
+                        .onSubmit {
+                            searchApps()
+                        }
+                }
+
+                Button {
+                    searchApps()
+                } label: {
+                    Label("搜索并加入", systemImage: "plus.circle")
+                        .frame(maxWidth: .infinity)
+                }
+                .buttonStyle(PrimaryActionButtonStyle())
+                .disabled(searchKeyword.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty || viewModel.isSearchingAppStore)
+
+                if viewModel.isSearchingAppStore {
+                    HStack(spacing: 8) {
+                        ProgressView()
+                            .controlSize(.small)
+                        Text("正在请求 App Store...")
+                            .font(.footnote)
+                            .foregroundStyle(.secondary)
+                    }
+                } else if !viewModel.appStoreSearchStatus.isEmpty {
+                    Text(viewModel.appStoreSearchStatus)
+                        .font(.footnote)
+                        .foregroundStyle(.secondary)
+                }
+            }
+        }
+    }
+
+    private var presetCard: some View {
+        SurfaceCard {
+            VStack(alignment: .leading, spacing: 10) {
+                SectionHeader(title: "常用应用", symbol: "square.stack.3d.up")
+
+                LazyVGrid(
+                    columns: [GridItem(.adaptive(minimum: 140), spacing: 10)],
+                    alignment: .leading,
+                    spacing: 10
+                ) {
+                    ForEach(viewModel.perAppPresetApps) { app in
+                        Button {
+                            toggleSelection(bundleID: app.bundleID)
+                        } label: {
+                            HStack(spacing: 6) {
+                                Image(systemName: isSelected(bundleID: app.bundleID) ? "checkmark.circle.fill" : "circle")
+                                Text(app.name)
+                                    .font(.footnote.weight(.semibold))
+                                Spacer(minLength: 4)
+                            }
+                            .padding(.vertical, 8)
+                            .padding(.horizontal, 10)
+                            .foregroundStyle(isSelected(bundleID: app.bundleID) ? Color.accentColor : Color.primary)
+                            .background(
+                                RoundedRectangle(cornerRadius: 12, style: .continuous)
+                                    .fill((isSelected(bundleID: app.bundleID) ? Color.accentColor : Color(uiColor: .tertiarySystemFill)).opacity(0.15))
+                            )
+                            .overlay {
+                                RoundedRectangle(cornerRadius: 12, style: .continuous)
+                                    .stroke(Color.accentColor.opacity(isSelected(bundleID: app.bundleID) ? 0.35 : 0.18), lineWidth: 1)
+                            }
+                        }
+                        .buttonStyle(.plain)
+                    }
+                }
+            }
+        }
+    }
+
+    private var selectedCard: some View {
+        SurfaceCard {
+            VStack(alignment: .leading, spacing: 10) {
+                SectionHeader(title: "已选择 Bundle ID（\(selectedBundleIDs.count)）", symbol: "checkmark.circle")
+
+                if selectedBundleIDs.isEmpty {
+                    Text("尚未选择应用。")
+                        .font(.footnote)
+                        .foregroundStyle(.secondary)
+                } else {
+                    PerAppBundleIDChips(
+                        bundleIDs: selectedBundleIDs,
+                        removeAction: { bundleID in
+                            toggleSelection(bundleID: bundleID)
+                        }
+                    )
+                }
+            }
+        }
+    }
+
+    private var searchResultCard: some View {
+        SurfaceCard {
+            VStack(alignment: .leading, spacing: 10) {
+                SectionHeader(title: "搜索结果", symbol: "list.bullet.below.rectangle")
+
+                ForEach(viewModel.appStoreSearchResults) { app in
+                    Button {
+                        toggleSelection(bundleID: app.bundleID)
+                    } label: {
+                        HStack(spacing: 10) {
+                            AsyncImage(url: app.artworkURL) { phase in
+                                switch phase {
+                                case .success(let image):
+                                    image
+                                        .resizable()
+                                        .scaledToFill()
+                                default:
+                                    RoundedRectangle(cornerRadius: 8, style: .continuous)
+                                        .fill(Color(uiColor: .secondarySystemFill))
+                                        .overlay {
+                                            Image(systemName: "app.fill")
+                                                .foregroundStyle(.secondary)
+                                        }
+                                }
+                            }
+                            .frame(width: 34, height: 34)
+                            .clipShape(RoundedRectangle(cornerRadius: 8, style: .continuous))
+
+                            VStack(alignment: .leading, spacing: 2) {
+                                Text(app.name)
+                                    .font(.footnote.weight(.semibold))
+                                    .foregroundStyle(.primary)
+                                Text(app.bundleID)
+                                    .font(.caption.monospaced())
+                                    .foregroundStyle(.secondary)
+                                Text(app.sellerName)
+                                    .font(.caption2)
+                                    .foregroundStyle(.tertiary)
+                            }
+
+                            Spacer(minLength: 8)
+
+                            Image(systemName: isSelected(bundleID: app.bundleID) ? "checkmark.circle.fill" : "plus.circle")
+                                .foregroundStyle(isSelected(bundleID: app.bundleID) ? .green : .accentColor)
+                                .font(.title3)
+                        }
+                        .padding(10)
+                        .background(
+                            RoundedRectangle(cornerRadius: 12, style: .continuous)
+                                .fill(Color(uiColor: .tertiarySystemFill))
+                        )
+                    }
+                    .buttonStyle(.plain)
+                }
+            }
+        }
+    }
+
+    private func searchApps() {
+        KeyboardController.dismiss()
+        Task {
+            await viewModel.searchAppStoreApps(keyword: searchKeyword)
+        }
+    }
+
+    private func toggleSelection(bundleID: String) {
+        if let index = selectedBundleIDs.firstIndex(where: { $0.caseInsensitiveCompare(bundleID) == .orderedSame }) {
+            selectedBundleIDs.remove(at: index)
+        } else {
+            selectedBundleIDs.append(bundleID)
+        }
+    }
+
+    private func isSelected(bundleID: String) -> Bool {
+        selectedBundleIDs.contains { $0.caseInsensitiveCompare(bundleID) == .orderedSame }
+    }
+}
+
+private struct PerAppBundleIDChips: View {
+    let bundleIDs: [String]
+    let removeAction: (String) -> Void
+
+    var body: some View {
+        VStack(alignment: .leading, spacing: 8) {
+            ForEach(bundleIDs, id: \.self) { bundleID in
+                HStack(spacing: 8) {
+                    Text(bundleID)
+                        .font(.footnote.monospaced())
+                        .foregroundStyle(.primary)
+                        .lineLimit(1)
+                        .minimumScaleFactor(0.9)
+                    Spacer(minLength: 8)
+                    Button {
+                        removeAction(bundleID)
+                    } label: {
+                        Image(systemName: "xmark.circle.fill")
+                            .foregroundStyle(.secondary)
+                    }
+                    .buttonStyle(.plain)
+                    .accessibilityLabel("移除 \(bundleID)")
+                }
+                .padding(.vertical, 7)
+                .padding(.horizontal, 10)
+                .background(
+                    RoundedRectangle(cornerRadius: 12, style: .continuous)
+                        .fill(Color(uiColor: .tertiarySystemFill))
+                )
             }
         }
     }

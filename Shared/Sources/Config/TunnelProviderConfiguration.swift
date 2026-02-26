@@ -3,6 +3,12 @@ import Foundation
 enum ProviderConfigKeys {
     static let profileData = "profileData"
     static let xrayJSON = "xrayJSON"
+    static let tunnelMode = "tunnelMode"
+}
+
+struct TunnelRuntimeConfig {
+    var profile: VPNProfile
+    var mode: TunnelMode
 }
 
 enum TunnelRuntimeDiagnostics {
@@ -58,18 +64,22 @@ enum TunnelRuntimeDiagnostics {
 }
 
 enum TunnelProviderConfigurationBuilder {
-    static func makeConfiguration(profile: VPNProfile) throws -> [String: Any] {
+    static func makeConfiguration(
+        profile: VPNProfile,
+        mode: TunnelMode = .fullDevice
+    ) throws -> [String: Any] {
         let profileData = try JSONEncoder().encode(profile)
         let profileJSONString = String(decoding: profileData, as: UTF8.self)
         let xrayJSON = try XrayConfigBuilder.build(profile: profile)
 
         return [
             ProviderConfigKeys.profileData: profileJSONString,
-            ProviderConfigKeys.xrayJSON: xrayJSON
+            ProviderConfigKeys.xrayJSON: xrayJSON,
+            ProviderConfigKeys.tunnelMode: mode.rawValue
         ]
     }
 
-    static func decodeProfile(from providerConfiguration: [String: Any]?) throws -> VPNProfile {
+    static func decodeRuntimeConfig(from providerConfiguration: [String: Any]?) throws -> TunnelRuntimeConfig {
         guard
             let providerConfiguration,
             let profileJSONString = providerConfiguration[ProviderConfigKeys.profileData] as? String,
@@ -81,6 +91,13 @@ enum TunnelProviderConfigurationBuilder {
                 userInfo: [NSLocalizedDescriptionKey: "缺少 VPN Profile 配置"]
             )
         }
-        return try JSONDecoder().decode(VPNProfile.self, from: profileData)
+        let profile = try JSONDecoder().decode(VPNProfile.self, from: profileData)
+        let modeRawValue = providerConfiguration[ProviderConfigKeys.tunnelMode] as? String
+        let mode = TunnelMode(rawValue: modeRawValue ?? "") ?? .fullDevice
+        return TunnelRuntimeConfig(profile: profile, mode: mode)
+    }
+
+    static func decodeProfile(from providerConfiguration: [String: Any]?) throws -> VPNProfile {
+        try decodeRuntimeConfig(from: providerConfiguration).profile
     }
 }

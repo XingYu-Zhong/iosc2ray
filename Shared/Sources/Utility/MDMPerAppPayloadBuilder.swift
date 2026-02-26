@@ -9,58 +9,53 @@ struct PerAppMDMExport {
 }
 
 enum MDMPerAppPayloadBuilder {
-    static func build(profile: VPNProfile, tunnelBundleID: String) -> PerAppMDMExport {
+    static func build(profile: VPNProfile, tunnelBundleID: String) throws -> PerAppMDMExport {
         let payloadUUID = UUID().uuidString
         let rootUUID = UUID().uuidString
         let vpnUUID = profile.id.uuidString.uppercased()
+        let providerConfiguration = try TunnelProviderConfigurationBuilder.makeConfiguration(
+            profile: profile,
+            mode: .perAppManaged
+        )
 
-        let mobileConfigXML = """
-        <?xml version="1.0" encoding="UTF-8"?>
-        <!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
-        <plist version="1.0">
-        <dict>
-          <key>PayloadContent</key>
-          <array>
-            <dict>
-              <key>PayloadDisplayName</key>
-              <string>Per-App VPN (\(profile.name))</string>
-              <key>PayloadIdentifier</key>
-              <string>com.zxy.iosv2ray.vpn.\(payloadUUID)</string>
-              <key>PayloadType</key>
-              <string>com.apple.vpn.managed.applayer</string>
-              <key>PayloadUUID</key>
-              <string>\(vpnUUID)</string>
-              <key>PayloadVersion</key>
-              <integer>1</integer>
-              <key>AppLayerVPN</key>
-              <dict>
-                <key>VPNUUID</key>
-                <string>\(vpnUUID)</string>
-                <key>VPN</key>
-                <dict>
-                  <key>ProviderType</key>
-                  <string>packet-tunnel</string>
-                  <key>ProviderBundleIdentifier</key>
-                  <string>\(tunnelBundleID)</string>
-                  <key>ServerAddress</key>
-                  <string>\(profile.endpoint.host)</string>
-                </dict>
-              </dict>
-            </dict>
-          </array>
-          <key>PayloadDisplayName</key>
-          <string>iosv2ray Per-App VPN</string>
-          <key>PayloadIdentifier</key>
-          <string>com.zxy.iosv2ray.profile.\(payloadUUID)</string>
-          <key>PayloadType</key>
-          <string>Configuration</string>
-          <key>PayloadUUID</key>
-          <string>\(rootUUID)</string>
-          <key>PayloadVersion</key>
-          <integer>1</integer>
-        </dict>
-        </plist>
-        """
+        let vpnPayload: [String: Any] = [
+            "PayloadDisplayName": "Per-App VPN (\(profile.name))",
+            "PayloadIdentifier": "com.zxy.iosv2ray.vpn.\(payloadUUID)",
+            "PayloadType": "com.apple.vpn.managed.applayer",
+            "PayloadUUID": vpnUUID,
+            "PayloadVersion": 1,
+            // App-Layer VPN inherits all VPN payload fields at top-level.
+            "VPNType": "VPN",
+            "VPNSubType": tunnelBundleID,
+            "UserDefinedName": "iosv2ray Per-App VPN (\(profile.name))",
+            "VPNUUID": vpnUUID,
+            "OnDemandMatchAppEnabled": true,
+            // VendorConfig is delivered to the provider as NETunnelProviderProtocol.providerConfiguration.
+            "VendorConfig": providerConfiguration,
+            "VPN": [
+                "ProviderType": "packet-tunnel",
+                "ProviderBundleIdentifier": tunnelBundleID,
+                "RemoteAddress": profile.endpoint.host,
+                "AuthenticationMethod": "None"
+            ]
+        ]
+
+        let rootPayload: [String: Any] = [
+            "PayloadContent": [vpnPayload],
+            "PayloadDisplayName": "iosv2ray Per-App VPN",
+            "PayloadIdentifier": "com.zxy.iosv2ray.profile.\(payloadUUID)",
+            "PayloadType": "Configuration",
+            "PayloadUUID": rootUUID,
+            "PayloadVersion": 1
+        ]
+
+        guard let mobileConfigXML = toXMLPlist(rootPayload) else {
+            throw NSError(
+                domain: "iosv2ray.mdm",
+                code: 21,
+                userInfo: [NSLocalizedDescriptionKey: "生成 mobileconfig 失败"]
+            )
+        }
 
         let settingsItems = profile.perAppBundleIDs.map { bundleID in
             [
